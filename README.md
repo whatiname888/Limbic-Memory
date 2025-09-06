@@ -17,31 +17,26 @@
 （待实现：依赖Python 3.8+、Hugging Face Transformers、FAISS等。安装指南将在后续更新。）
 
 ### 🆕 环境快速初始化脚本
-已提供 `start.sh`：自动完成虚拟环境创建、国内镜像判断、依赖安装（首次生成 `requirements.txt`）。
+`start.sh`：自动检测环境、创建/复用 `.venv`，如存在 `requirements.txt` 则安装；若文件不存在仅创建虚拟环境。
 
 ```bash
 # 赋予执行权限（首次）
 chmod +x start.sh
-# 默认执行（自动创建 .venv 并安装依赖）
+# 默认执行（自动创建 .venv；若已有 requirements.txt 则安装依赖）
 ./start.sh
-# 仅创建/复用虚拟环境，不安装依赖
-./start.sh --only-env
-# 强制使用清华镜像
-./start.sh --cn
-# 修改 requirements.txt 后重新安装
+```
+后续你自行添加/维护 `requirements.txt` 后，可执行：
+
+```bash
 ./start.sh --reinstall
 ```
-生成/使用的文件说明：
-- `.venv/` 虚拟环境目录
-- `requirements.txt` 初次不存在时自动生成(可自行扩展)
-- `.deps.ok` 安装完成标记（删除或用 `--reinstall` 触发重装）
+可选：国内网络需要加速时使用 `--cn`。
 
-手动方式（可选）:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+生成/使用的文件：
+- `.venv/` 虚拟环境
+- `.deps.ok` 依赖安装标记（仅在发现并安装了 requirements.txt 时生成）
+
+不再自动生成 `requirements.txt`，避免污染你自定义的依赖规划。
 
 ## 用法
 （待实现：简单示例将在demo文件夹中提供。基本用法如导入模块并初始化忆存器。）

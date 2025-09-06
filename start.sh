@@ -79,41 +79,28 @@ source "$VENV_DIR/bin/activate"
 log "虚拟环境 Python: $(python -V 2>&1)"
 python -m pip install --upgrade pip wheel ${PIP_INDEX:+-i $PIP_INDEX}
 
-section "准备 requirements.txt"
-if [ ! -f "$REQ_FILE" ]; then
-  cat > "$REQ_FILE" <<'EOF'
-# Limbic Memory 基础依赖 (初始占位, 可按模块演进补充)
-# 记忆检索 / 向量
-faiss-cpu>=1.7.4; platform_system!='Windows'
-# Windows 可改用: faiss-windows
-# LLM 客户端 (可选)
-openai>=1.0.0
-# 嵌入/模型生态
-transformers>=4.40.0
-# 数据处理
-numpy>=1.24.0
-pydantic>=2.5.0
-uvloop; platform_system=='Linux'
-loguru>=0.7.2
-EOF
-  log "生成默认 requirements.txt"
+section "依赖文件检查"
+if [ -f "$REQ_FILE" ]; then
+  log "检测到 requirements.txt"
 else
-  log "检测到已有 requirements.txt"
+  log "未找到 requirements.txt -> 跳过依赖安装 (稍后自行创建后执行: ./start.sh --reinstall)"
 fi
 
 section "安装依赖"
 if [ $REINSTALL -eq 1 ]; then rm -f "$STAMP"; fi
 if [ $ONLY_ENV -eq 1 ]; then
   log "--only-env 指定: 跳过依赖安装"
+elif [ ! -f "$REQ_FILE" ]; then
+  log "无 requirements.txt -> 未执行依赖安装"
 elif [ ! -f "$STAMP" ]; then
   pip install -r "$REQ_FILE" ${PIP_INDEX:+-i $PIP_INDEX}
   date > "$STAMP"
   log "✅ 依赖安装完成"
 else
-  log "已安装 (使用 --reinstall 可重新安装)"
+  log "依赖已安装 (如需重新安装: --reinstall)"
 fi
 
 section "完成"
 echo "进入环境: source .venv/bin/activate"
 echo "退出环境: deactivate"
-echo "可编辑 requirements.txt 后运行: ./start.sh --reinstall"
+echo "创建或更新 requirements.txt 后运行: ./start.sh --reinstall 安装/更新依赖"

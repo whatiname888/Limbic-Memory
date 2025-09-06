@@ -1,0 +1,86 @@
+# LimbicMemory root .gitignore
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+.eggs/
+.build/
+.dist/
+
+# Virtual environments
+.venv/
+venv/
+.env/
+.envrc
+
+# Packaging / distribution
+build/
+dist/
+wheelhouse/
+
+# Logs & runtime
+logs/
+*.log
+nohup.out
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# Coverage / test artifacts
+.coverage*
+htmlcov/
+.cache/
+pytest_cache/
+.tox/
+.mypy_cache/
+.pytest_cache/
+
+# Type checking / pyright
+pyrightcache/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Mac / OS
+.DS_Store
+
+# Node (in case we add local tooling or build scripts)
+node_modules/
+*.tsbuildinfo
+
+# Frontend build outputs (if any future local build)
+.next/
+.out/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Submodule-specific safeguards (do not commit its node_modules if user installs inside)
+external/nemo-agent-toolkit-ui/node_modules/
+external/nemo-agent-toolkit-ui/.next/
+external/nemo-agent-toolkit-ui/out/
+external/nemo-agent-toolkit-ui/coverage/
+external/nemo-agent-toolkit-ui/*.tsbuildinfo
+
+# Cache files from tools
+**/.ruff_cache/
+
+# lockfiles we intentionally do not manage at root
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Temporary scratch
+.tmp/
+.temp/

@@ -29,6 +29,12 @@ logs/
 nohup.out
 .runtime/
 
+# Dependency state markers (local install caches, should not be committed)
+.deps.hash
+.deps.ok
+external/nemo-agent-toolkit-ui/.deps.hash
+external/nemo-agent-toolkit-ui/.deps.ok
+
 # Jupyter / notebooks
 .ipynb_checkpoints/
 

@@ -1,0 +1,3 @@
+[submodule "external/nemo-agent-toolkit-ui"]
+	path = external/nemo-agent-toolkit-ui
+	url = https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI

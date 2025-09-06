@@ -66,3 +66,35 @@ flowchart TD
 
 感谢使用 Limbic Memory！
 
+## 前端 UI 集成说明
+
+本仓库集成了 NVIDIA 官方 NeMo Agent Toolkit UI 作为前端子模块，路径：`external/nemo-agent-toolkit-ui`。
+
+### 拉取包含子模块的代码
+```bash
+git clone https://github.com/whatiname888/Limbic-Memory.git
+cd Limbic-Memory
+git submodule update --init --recursive
+```
+
+### 更新前端子模块到最新上游
+```bash
+cd external/nemo-agent-toolkit-ui
+git fetch origin
+git checkout origin/main
+cd ../..
+git add external/nemo-agent-toolkit-ui
+git commit -m "chore: bump nemo-agent-toolkit-ui submodule"
+```
+
+### 安装并运行前端（示例）
+```bash
+cd external/nemo-agent-toolkit-ui
+npm install  # 或使用 pnpm / yarn
+npm run dev  # 默认 http://localhost:3000
+```
+
+### 说明
+- 子模块不会自动包含依赖，请在首次拉取后自行执行安装命令。
+- 该 UI 遵循其仓库的 Apache-2.0 许可证，相关 LICENSE 已保留。
+

@@ -35,6 +35,9 @@ nohup.out
 external/nemo-agent-toolkit-ui/.deps.hash
 external/nemo-agent-toolkit-ui/.deps.ok
 
+# Local backend secret config (generated, contains API keys)
+backend/config.json
+
 # Jupyter / notebooks
 .ipynb_checkpoints/
 

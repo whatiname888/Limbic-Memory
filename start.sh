@@ -136,7 +136,7 @@ generate_frontend_env(){
   # 这里改成真正的多行写入，避免串行污染。
   local new_content
   new_content=$(cat <<EOF
-NEXT_PUBLIC_WORKFLOW=NeMo Agent Toolkit
+NEXT_PUBLIC_WORKFLOW=Limbic Memory
 NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL=ws://127.0.0.1:${BACKEND_PORT}/websocket
 NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL=http://127.0.0.1:${BACKEND_PORT}/chat/stream
 NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false

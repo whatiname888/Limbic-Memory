@@ -19,19 +19,20 @@
 ### 🆕 依赖安装脚本
 `install.sh`：一键安装/更新 Python 与前端依赖；自动检测 requirements.txt / lock 文件是否变化；无需任何参数。
 
+> 网络说明: 安装依赖需要访问 PyPI 与 npm registry。若网络不可用或被防火墙拦截，脚本可能表现为长时间无输出“卡住”。
+>
+> 诊断步骤：
+> 1. 先测试网络: `curl -I https://pypi.org/simple` / `curl -I https://registry.npmmirror.com`。
+> 2. 若确实离线，可使用离线模式：`LM_OFFLINE=1 ./install.sh`（将跳过依赖下载）。
+> 3. 也可调整环境变量：`LM_PIP_TIMEOUT`、`LM_PIP_RETRIES`、`LM_NPM_MIRROR`。
+> 4. 若曾部分下载，可删除 `.venv` 与前端 `node_modules` 后重试。
+
+
 ```bash
 chmod +x install.sh
 ./install.sh   # 自动创建 .venv 并安装后端 + 前端依赖
 # 若修改了 requirements.txt 或前端 package.json/lock 文件会自动重新安装
 # 若要强制重装，删除对应 .deps.ok / .deps.hash 后再运行
-```
-
-## 用法（占位）
-后续将补充：
-```python
-from limbic_memory import LimbicMemory
-lm = LimbicMemory(model="gpt-3.5-turbo")
-lm.activate("query text")
 ```
 
 ## 模块概述

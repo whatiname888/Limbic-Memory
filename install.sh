@@ -20,23 +20,45 @@ PY_MIN_MAJOR=3
 PY_MIN_MINOR=8
 NODE_MIN_VERSION=18
 
+# 可配置: 离线模式 (1 = 不尝试联网安装)
+OFFLINE_FLAG=${LM_OFFLINE:-0}
+PIP_TIMEOUT=${LM_PIP_TIMEOUT:-25}
+NPM_TIMEOUT=${LM_NPM_TIMEOUT:-30}
+PIP_RETRIES=${LM_PIP_RETRIES:-2}
+NPM_REGISTRY_MIRROR=${LM_NPM_MIRROR:-https://registry.npmmirror.com}
+
 log(){ printf "[%s] %s\n" "$(date +'%H:%M:%S')" "$*"; }
 section(){ echo -e "\n==== $* ===="; }
 check_cmd(){ command -v "$1" >/dev/null 2>&1; }
 hash_file(){ [ -f "$1" ] && sha1sum "$1" | awk '{print $1}' || true; }
 
+have_timeout(){ command -v timeout >/dev/null 2>&1; }
+
+network_ok(){
+  [ "$OFFLINE_FLAG" = "1" ] && return 1
+  # 先探测 PyPI / 备用镜像 / npm registry 任一成功即认为在线
+  local targets=("https://pypi.org/simple" "https://pypi.tuna.tsinghua.edu.cn/simple" "$NPM_REGISTRY_MIRROR")
+  for t in "${targets[@]}"; do
+    if curl -k --connect-timeout 5 -m 8 -sI "$t" >/dev/null 2>&1; then return 0; fi
+  done
+  return 1
+}
+
 auto_pip_install(){
-  local req="$1"; local try_mirror=0
-  pip install -r "$req" && return 0 || try_mirror=1
+  local req="$1"; local try_mirror=0; local base_cmd="pip install --retries $PIP_RETRIES --default-timeout $PIP_TIMEOUT -r $req"
+  local run_cmd="$base_cmd"
+  if have_timeout; then run_cmd="timeout 300 $run_cmd"; fi
+  eval $run_cmd && return 0 || try_mirror=1
   if [ $try_mirror -eq 1 ]; then
     log "pip 默认源失败，尝试使用清华镜像..."
-    pip install -r "$req" -i https://pypi.tuna.tsinghua.edu.cn/simple && return 0 || return 1
+    run_cmd="$base_cmd -i https://pypi.tuna.tsinghua.edu.cn/simple"
+    if have_timeout; then run_cmd="timeout 300 $run_cmd"; fi
+    eval $run_cmd && return 0 || return 1
   fi
 }
 
 auto_npm_install(){
-  local dir="$1"; local cmd="";
-  pushd "$dir" >/dev/null
+  local dir="$1"; local cmd=""; pushd "$dir" >/dev/null
   if [ -f pnpm-lock.yaml ] && check_cmd pnpm; then
     cmd="pnpm install"
   elif [ -f yarn.lock ] && check_cmd yarn; then
@@ -47,18 +69,28 @@ auto_npm_install(){
     cmd="npm install"
   fi
   log "执行: $cmd"
-  if $cmd; then popd >/dev/null; return 0; fi
-  log "默认 registry 失败，尝试使用国内镜像..."
-  if [[ "$cmd" == npm* ]]; then
-    if npm install --registry https://registry.npmmirror.com; then popd >/dev/null; return 0; fi
+  if have_timeout; then
+    if ! timeout 420 bash -c "$cmd"; then
+      log "默认 registry 失败，尝试使用镜像 $NPM_REGISTRY_MIRROR...";
+      if [[ "$cmd" == npm* ]]; then timeout 420 bash -c "$cmd --registry $NPM_REGISTRY_MIRROR" || true; else npm install --registry $NPM_REGISTRY_MIRROR || true; fi
+    fi
   else
-    log "兜底使用 npm + 国内镜像"
-    if npm install --registry https://registry.npmmirror.com; then popd >/dev/null; return 0; fi
+    if ! $cmd; then
+      log "默认 registry 失败，尝试使用镜像 $NPM_REGISTRY_MIRROR...";
+      if [[ "$cmd" == npm* ]]; then $cmd --registry $NPM_REGISTRY_MIRROR || true; else npm install --registry $NPM_REGISTRY_MIRROR || true; fi
+    fi
   fi
-  popd >/dev/null; return 1
+  popd >/dev/null
 }
 
 section "后端(Python)"
+if ! network_ok; then
+  if [ "$OFFLINE_FLAG" = "1" ]; then
+    log "离线模式: 跳过后端依赖安装 (已设置 LM_OFFLINE=1)"
+  else
+    log "未检测到可用网络 (可设置 LM_OFFLINE=1 明确离线)。将跳过依赖安装。"
+  fi
+fi
 if ! check_cmd "$PYTHON_BIN"; then echo "❌ 未找到 python3 (>=${PY_MIN_MAJOR}.${PY_MIN_MINOR})"; exit 1; fi
 PY_VER=$($PYTHON_BIN -c 'import sys;print("%d.%d"%sys.version_info[:2])')
 python3 - <<EOF || echo "⚠️ Python ${PY_VER} 低于推荐 ${PY_MIN_MAJOR}.${PY_MIN_MINOR}+"
@@ -76,7 +108,7 @@ fi
 source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip wheel setuptools >/dev/null 2>&1 || true
 
-if [ -f "$REQ_FILE" ]; then
+if [ -f "$REQ_FILE" ] && network_ok; then
   NEW_HASH=$(hash_file "$REQ_FILE")
   OLD_HASH=""; [ -f "$PY_HASH_FILE" ] && OLD_HASH=$(cat "$PY_HASH_FILE") || true
   if [ ! -f "$PY_STAMP" ] || [ "$NEW_HASH" != "$OLD_HASH" ]; then
@@ -94,7 +126,21 @@ else
 fi
 deactivate || true
 
+# 生成本地 backend/config.json (若不存在) 避免把真实密钥提交仓库
+BACKEND_DIR="$PROJECT_ROOT/backend"
+CFG_EXAMPLE="$BACKEND_DIR/config.example.json"
+CFG_FILE="$BACKEND_DIR/config.json"
+if [ -d "$BACKEND_DIR" ]; then
+  if [ -f "$CFG_EXAMPLE" ] && [ ! -f "$CFG_FILE" ]; then
+    cp "$CFG_EXAMPLE" "$CFG_FILE"
+    log "已生成本地 backend/config.json (请编辑填入真实 api_key)"
+  fi
+fi
+
 section "前端(Node)"
+if ! network_ok; then
+  log "离线/无网络: 跳过前端依赖安装"
+fi
 if [ ! -d "$FRONTEND_DIR" ]; then
   log "未找到前端目录 $FRONTEND_DIR (如为子模块请: git submodule update --init --recursive)"
 else
@@ -116,10 +162,11 @@ else
     F_OLD_HASH=""; [ -f "$FRONT_HASH_FILE" ] && F_OLD_HASH=$(cat "$FRONT_HASH_FILE") || true
     if [ ! -f "$FRONT_STAMP" ] || [ "$F_NEW_HASH" != "$F_OLD_HASH" ]; then
       section "安装/更新 前端依赖"
-      if auto_npm_install "$FRONTEND_DIR"; then
+      if network_ok; then
+        auto_npm_install "$FRONTEND_DIR"
         echo "$F_NEW_HASH" > "$FRONT_HASH_FILE"; date > "$FRONT_STAMP"; log "✅ 前端依赖安装成功"
       else
-        log "❌ 前端依赖安装失败"
+        log "跳过 (无网络)"
       fi
     else
       log "前端依赖未变化，跳过"
@@ -129,7 +176,9 @@ fi
 
 section "完成"
 echo "Python 虚拟环境: $VENV_DIR (激活: source .venv/bin/activate)"
-echo "后端启动: ./run_backend.sh (FastAPI 开发模式端口 8000)"
-echo "前端开发: cd external/nemo-agent-toolkit-ui && npm run dev"
-echo "强制重装: 删除 .deps.ok / .deps.hash 后再次执行 ./install.sh"
-echo "安装脚本仅负责依赖安装，不做运行编排。"
+echo "统一启动: ./start.sh  (自动选择后端端口, 生成前端 .env.local, 同时拉起前后端)"
+echo "仅启动后端(调试): uvicorn backend.main:app --port 8100 --reload"
+echo "仅启动前端(调试): cd external/nemo-agent-toolkit-ui && npm run dev"
+echo "配置文件: backend/config.json (请编辑填入真实 api_key)"
+echo "强制重装依赖: 删除 .deps.ok / .deps.hash 后执行 ./install.sh"
+echo "说明: install.sh 只做依赖与配置生成, 运行流程请用 start.sh"

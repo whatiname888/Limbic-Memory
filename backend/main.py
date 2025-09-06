@@ -12,13 +12,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, AsyncGenerator
-import time, json, os, asyncio
+import time, json, os, asyncio, logging
 from functools import lru_cache
 
 try:
     from openai import AsyncOpenAI  # type: ignore
 except Exception:  # pragma: no cover
     AsyncOpenAI = None  # type: ignore
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("limbic.backend")
 
 app = FastAPI(title="Limbic Memory Backend", version="0.1.0")
 
@@ -91,6 +94,11 @@ def get_openai_client():
 def healthz():
     return HealthResponse(status="ok", time=time.time())
 
+# 兼容 /health (有些反向代理或监控默认探活路径) 不写入 OpenAPI 文档
+@app.get("/health", include_in_schema=False)
+def health_alias():
+    return healthz()
+
 
 @app.post("/chat/stream")
 async def chat_stream(body: ChatRequest, request: Request):
@@ -98,12 +106,21 @@ async def chat_stream(body: ChatRequest, request: Request):
 
     返回 SSE 风格：data: {json}\n  末尾 data: [DONE]\n
     """
+    logger.info("/chat/stream request: messages=%d model=%s", len(body.messages), body.model or "<default>")
     try:
         client, ocfg = get_openai_client()
     except Exception as e:
+        logger.error("config/openai init error: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
-    model = body.model or ocfg.get("model", "gpt-4o-mini")
+    # 模型名归一化：前端如果传了 JSON schema 默认 "string" / "model" / 空等占位，回退到配置默认
+    invalid_placeholders = {None, "", "string", "model", "undefined", "null"}
+    raw_model = (body.model or "").strip() if body.model else ""
+    if raw_model.lower() in invalid_placeholders:
+        model = ocfg.get("model", "gpt-4o-mini")
+        logger.info("model placeholder '%s' -> fallback '%s'", raw_model or "<empty>", model)
+    else:
+        model = raw_model
     temperature = body.temperature if body.temperature is not None else ocfg.get("temperature", 0.7)
     max_tokens = body.max_tokens if body.max_tokens is not None else ocfg.get("max_output_tokens") or None
 
@@ -114,16 +131,31 @@ async def chat_stream(body: ChatRequest, request: Request):
         msgs.append({"role": role, "content": m.content})
 
     async def gen() -> AsyncGenerator[bytes, None]:
+        # 立即发送一个起始空增量，避免前端长时间无字节误判超时 / 移除图标
+        start_payload = {"choices": [{"delta": {"content": ""}}], "__start": True}
+        yield f"data: {json.dumps(start_payload, ensure_ascii=False)}\n".encode("utf-8")
+        # 若仍然是占位或缺失，提前给出错误避免调用 404
+        if not model or model.lower() in invalid_placeholders:
+            err_payload = {
+                "error": "model not configured (server fallback also empty)",
+                "choices": [{"delta": {"content": "[ERROR] model not configured"}}]
+            }
+            yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n".encode("utf-8")
+            yield b"data: [DONE]\n"
+            return
         try:
-            stream = await client.chat.completions.create(
+            logger.info("creating openai stream model=%s temp=%s max_tokens=%s", model, temperature, max_tokens)
+            stream = await client.chat.completions.create(  # type: ignore
                 model=model,
                 messages=msgs,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
             )
+            got_any = False
             async for chunk in stream:  # type: ignore
                 if await request.is_disconnected():
+                    logger.info("client disconnected during stream")
                     break
                 try:
                     choice = chunk.choices[0]
@@ -136,11 +168,21 @@ async def chat_stream(body: ChatRequest, request: Request):
                     if piece:
                         payload = {"choices": [{"delta": {"content": piece}}]}
                         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n".encode("utf-8")
-                except Exception:
+                        got_any = True
+                except Exception as inner_e:
+                    logger.warning("stream chunk parse error: %s", inner_e)
                     continue
+            if not got_any:
+                logger.warning("openai stream returned no content pieces (empty response)")
             yield b"data: [DONE]\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n".encode("utf-8")
+            logger.error("openai streaming error: %s", e)
+            # 以兼容格式发回错误（choices 结构 + error 字段）便于前端显示
+            err_payload = {
+                "error": str(e),
+                "choices": [{"delta": {"content": f"[ERROR] {str(e)}"}}]
+            }
+            yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n".encode("utf-8")
             yield b"data: [DONE]\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")

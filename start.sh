@@ -12,8 +12,9 @@ fi
 
 PROJECT_ROOT=$(cd "$(dirname "$0")" && pwd)
 BACKEND_APP="backend.main:app"
-# 后端基础起始端口改为 8100（避免与本机已有 8000 占用冲突）
-BACKEND_BASE_PORT=8100
+# 后端固定端口 8000（前端存在大量硬编码 8000 的 fallback）。
+# 可通过环境变量 LM_BACKEND_PORT 覆盖。例如：LM_BACKEND_PORT=8101 ./start.sh
+BACKEND_BASE_PORT=${LM_BACKEND_PORT:-8000}
 FRONTEND_DIR="$PROJECT_ROOT/external/nemo-agent-toolkit-ui"
 FRONTEND_BASE_PORT=3000
 INSTALL_SCRIPT="$PROJECT_ROOT/install.sh"
@@ -119,18 +120,14 @@ start_frontend(){
   err "前端端口连续冲突/失败，放弃启动"; return 1
 }
 
-BACKEND_PORT=$(find_free_port $BACKEND_BASE_PORT 10 || echo $BACKEND_BASE_PORT)
+# 固定端口策略：直接使用 BACKEND_BASE_PORT，不再自动跳转端口；若端口被占用需手动释放。
+BACKEND_PORT=$BACKEND_BASE_PORT
 FRONTEND_PORT=$(find_free_port $FRONTEND_BASE_PORT 20 || echo $FRONTEND_BASE_PORT)
 log "后端使用端口: $BACKEND_PORT"; log "前端期望端口: $FRONTEND_PORT"
 
 generate_frontend_env(){
   local target="$FRONTEND_DIR/.env.local"; [ ! -d "$FRONTEND_DIR" ] && return 0
-  # 若存在固定端口的 .env 可能覆盖 .env.local，备份后移除以避免端口不一致 (8000 vs 动态端口)
-  if [ -f "$FRONTEND_DIR/.env" ]; then
-    if grep -q '127.0.0.1:8000' "$FRONTEND_DIR/.env"; then
-      mv "$FRONTEND_DIR/.env" "$FRONTEND_DIR/.env.bak" && log "已备份并移除固定端口 .env -> .env.bak (改用动态 .env.local)"
-    fi
-  fi
+  # 不再备份移除 .env（后端端口固定 8000，与硬编码一致）。
   # 之前版本把 \n 作为普通字符写进单行，导致 NEXT_PUBLIC_WORKFLOW 变量的值包含后续整个文件内容，
   # 页面上就会显示出后续环境变量名 (例如 NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL)。
   # 这里改成真正的多行写入，避免串行污染。
@@ -157,12 +154,108 @@ EOF
 
 BACKEND_LOG="$LOG_DIR/backend.log"; FRONTEND_LOG="$LOG_DIR/frontend.log"; rm -f "$BACKEND_LOG" "$FRONTEND_LOG" || true
 
-log "启动后端 (无热重载)..."; uvicorn "$BACKEND_APP" --host 0.0.0.0 --port "$BACKEND_PORT" >"$BACKEND_LOG" 2>&1 & BACKEND_PID=$!; echo "$BACKEND_PID" > "$BACKEND_PID_FILE"; log "后端进程 PID=$BACKEND_PID (日志: $BACKEND_LOG)"
+# 若固定端口被占用，提供信息并根据变量决定是否自动清理
+
+ensure_port_free(){
+  local port=$1; local attempts=${2:-10}; local sleep_s=${3:-0.5}; local i=1
+  command -v lsof >/dev/null 2>&1 || return 0
+  while [ $i -le $attempts ]; do
+    if lsof -iTCP:"$port" -sTCP:LISTEN -Pn >/dev/null 2>&1; then
+      if [ $i -eq 1 ]; then
+        echo "[WARN] 端口 $port 被占用，尝试释放 (尝试次数: $attempts)" >&2
+      fi
+      if [ "${LM_KILL_8000:-0}" = "1" ]; then
+        OCC_LINES=$(lsof -iTCP:"$port" -sTCP:LISTEN -Pn | awk 'NR>1')
+        echo "$OCC_LINES" >&2
+        PIDS=$(echo "$OCC_LINES" | awk '{print $2}' | sort -u)
+        for p in $PIDS; do kill $p 2>/dev/null || true; done
+        sleep "$sleep_s"
+      else
+        sleep "$sleep_s"
+      fi
+    else
+      return 0
+    fi
+    i=$((i+1))
+  done
+  return 1
+}
+
+if ! ensure_port_free "$BACKEND_PORT" 12 0.5; then
+  if [ "${LM_BACKEND_FALLBACK:-0}" = "1" ]; then
+    OLD_PORT=$BACKEND_PORT
+    BACKEND_PORT=$((BACKEND_PORT+1))
+    echo "[WARN] 无法释放端口 $OLD_PORT，使用备用端口 $BACKEND_PORT (需手动更新前端或修正硬编码)" >&2
+  else
+    echo "[ERROR] 端口 $BACKEND_PORT 长时间被占用。可用: LM_KILL_8000=1 ./start.sh 或 LM_BACKEND_FALLBACK=1 ./start.sh" >&2
+    exit 1
+  fi
+fi
+
+start_backend(){
+  local base_port=$1; local max_attempts=${2:-5}; local p=$base_port; local attempt=1
+  while [ $attempt -le $max_attempts ]; do
+    log "启动后端 (端口 $p 尝试 $attempt/$max_attempts)..."
+    rm -f "$BACKEND_LOG" || true
+    uvicorn "$BACKEND_APP" --host 0.0.0.0 --port "$p" >"$BACKEND_LOG" 2>&1 &
+    BACKEND_PID=$!; echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
+    sleep 0.8
+    if ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
+      # 进程已退出，检查是否 EADDRINUSE
+      if grep -q 'address already in use' "$BACKEND_LOG" 2>/dev/null; then
+        if command -v ss >/dev/null 2>&1; then
+          OCC=$(ss -ltnp 2>/dev/null | grep ":$p" || true)
+          [ -n "$OCC" ] && log "检测到占用详情: $OCC" || log "未捕获占用进程（可能瞬时进程或很快退出）"
+        fi
+        log "端口 $p 占用 -> 尝试下一个端口"
+        p=$((p+1)); attempt=$((attempt+1)); continue
+      else
+        err "后端启动失败，日志:"
+        tail -n 40 "$BACKEND_LOG" || true
+        return 1
+      fi
+    else
+      # 仍在运行，检查是否写出 EADDRINUSE（极端情况下晚写）
+      if grep -q 'address already in use' "$BACKEND_LOG" 2>/dev/null; then
+        if command -v ss >/dev/null 2>&1; then
+          OCC=$(ss -ltnp 2>/dev/null | grep ":$p" || true)
+          [ -n "$OCC" ] && log "检测到占用详情(仍存活): $OCC" || log "未捕获占用进程（晚写日志后已退出）"
+        fi
+        graceful_kill "$BACKEND_PID" backend_conflict || true
+        p=$((p+1)); attempt=$((attempt+1)); continue
+      fi
+      BACKEND_PORT=$p
+      log "后端进程 PID=$BACKEND_PID (端口: $BACKEND_PORT 日志: $BACKEND_LOG)"
+      return 0
+    fi
+  done
+  err "连续 $max_attempts 次端口冲突，放弃启动后端。"
+  return 1
+}
+
+start_backend "$BACKEND_PORT" 6 || { err "无法启动后端"; exit 1; }
 
 FRONTEND_PID=""
 if [ -d "$FRONTEND_DIR" ] && command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then generate_frontend_env; start_frontend || true; else err "前端未启动（缺少目录或 node/npm）"; fi
 
-health_check(){ for _ in $(seq 1 20); do if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/healthz" >/dev/null 2>&1; then log "后端健康检查通过: http://127.0.0.1:${BACKEND_PORT}/healthz"; return 0; fi; sleep 0.5; done; err "后端健康检查失败 (仍可查看日志)"; }
+health_check(){
+  if [ "${LM_SKIP_HEALTH:-0}" = "1" ]; then
+    log "跳过健康检查 (LM_SKIP_HEALTH=1)"
+    return 0
+  fi
+  local max=20; local i=1
+  while [ $i -le $max ]; do
+    if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/healthz" >/dev/null 2>&1; then
+      log "后端健康检查通过: http://127.0.0.1:${BACKEND_PORT}/healthz"
+      return 0
+    else
+      log "健康检查尝试 ${i}/${max} 失败，0.5s 后重试..."
+    fi
+    sleep 0.5; i=$((i+1))
+  done
+  err "后端健康检查失败 (仍可查看日志)"
+  return 1
+}
 health_check || true
 
 log "运行中："; echo "  后端 API:   http://localhost:${BACKEND_PORT} (健康: /healthz)"; if [ -n "$FRONTEND_PID" ]; then echo "  前端 UI:    http://localhost:${FRONTEND_PORT}"; else echo "  前端 UI:    未启动"; fi; echo "  日志目录:   $LOG_DIR"; echo "  停止: Ctrl+C"

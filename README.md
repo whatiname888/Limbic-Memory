@@ -3,7 +3,7 @@
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/whatiname888/Limbic-Memory.svg?style=social)](https://github.com/whatiname888/Limbic-Memory/stargazers)
 
-**Limbic Memory**（边缘海马忆存器）是一个开源参考架构项目，旨在为大型语言模型（LLM）提供生物启发的动态记忆增强方案。名字源于人类大脑的边缘系统（Limbic System），强调“边缘”外挂定位、“海马体”模拟短期到长期记忆转换，以及“忆存器”作为存储与管理机制的核心。项目解决 LLM 的上下文空间限制和“失忆”问题，通过模拟激活、忘记和时间顺序感，实现更智能的对话响应。
+**Limbic Memory**（边缘海马忆存器）是一个开源参考架构项目，旨在为大型语言模型（LLM）提供生物启发的动态记忆增强方案。名字源于人类大脑的边缘系统（Limbic System），强调“边缘”外挂定位、“海马体”模拟短期到长期记忆转换，以及“忆存器”作为存储与管理机制的核心。项目解决 LLM 的上下文空间限制和“失忆”问题，通过模拟激活、忘记实现更智能的对话响应。
 
 核心理念：LLM 记忆不是静态全忆，而是动态激活、逐渐忘记、具时间顺序感，像人类大脑边缘系统。外挂设计，灵活适配各种模型（GPT、Llama……），保持实时响应（<1s），支持自定义深度/时长。
 
@@ -13,52 +13,99 @@
 - **主动性**：融入 MCP（Model Context Protocol），让 LLM 主动控制回忆/存储/删除。
 - **目标**：实时对话友好；作为开源参考，易于扩展。
 
-## 安装
-（待实现：依赖 Python 3.8+、Transformers、FAISS 等。正式实现后提供脚本与依赖说明。）
+## 安装 & 启动 (推荐快速路径)
 
-### 🆕 依赖安装脚本
-`install.sh`：一键安装/更新 Python 与前端依赖；自动检测 requirements.txt / lock 文件是否变化；无需任何参数。
-
-> 网络说明: 安装依赖需要访问 PyPI 与 npm registry。若网络不可用或被防火墙拦截，脚本可能表现为长时间无输出“卡住”。
->
-> 诊断步骤：
-> 1. 先测试网络: `curl -I https://pypi.org/simple` / `curl -I https://registry.npmmirror.com`。
-> 2. 若确实离线，可使用离线模式：`LM_OFFLINE=1 ./install.sh`（将跳过依赖下载）。
-> 3. 也可调整环境变量：`LM_PIP_TIMEOUT`、`LM_PIP_RETRIES`、`LM_NPM_MIRROR`。
-> 4. 若曾部分下载，可删除 `.venv` 与前端 `node_modules` 后重试。
-
-
+### 0. 拉取仓库（含子模块 UI）
 ```bash
-chmod +x install.sh
-./install.sh   # 自动创建 .venv 并安装后端 + 前端依赖
-# 若修改了 requirements.txt 或前端 package.json/lock 文件会自动重新安装
-# 若要强制重装，删除对应 .deps.ok / .deps.hash 后再运行
+git clone https://github.com/whatiname888/Limbic-Memory.git
+cd Limbic-Memory
+git submodule update --init --recursive
 ```
 
-## 模块概述
-### 自动检索触发 (auto_query_recall)
-为保证“根据用户问题自动激活相关记忆”的体验，新增配置开关与参数：
-`memory.auto_query_recall` (bool) 是否开启自动召回
-`memory.auto_query_recall_top_k` (int) 自动召回使用的 k（不影响模型自主记忆调用时的 top_k）
-`memory.auto_query_recall_query_max_chars` (int) 从用户最近输入末尾截取的最大字符数作为查询
+### 1. 安装依赖
+```bash
+chmod +x install.sh start.sh
+./install.sh   # 创建/复用 .venv 并安装后端 + 前端依赖，自动生成 backend/config.json(若不存在)
+```
 
-行为逻辑：
-1. 每次进入对话回合，若模型自身在工具规划阶段未调用 `memory_recall` 且该开关为 true，则系统用“最近一条用户输入（截断到 max_chars）”作为查询自动触发一次召回。
-2. 该自动召回会在工具步骤 Markdown 中展示（标注为一次正常的 recall 调用）。
-3. 若仍无任何 `memory_store` 行为且用户句子包含长期偏好或目标关键词（喜欢/爱/目标/想要/想做/计划/习惯/偏好），系统会进行一次启发式存储，避免信息流失。
+### 2. 配置后端密钥
+编辑 `backend/config.json`（由 install.sh 复制自 `config.example.json`）：
+```jsonc
+{
+    "chat": { "api_key": "YOUR_KEY", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen3-max-preview" },
+    "embedding": { "api_key": "YOUR_KEY", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "text-embedding-v1" },
+    "hippocampus": { "api_key": "YOUR_KEY", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen3-max-preview", "inject_context": true }
+}
+```
+说明：兼容 OpenAI 协议，替换成自建或其它代理 → 调整 `base_url` 与模型名即可。
 
-目的：防止提示词收紧后模型“过度保守”导致无回忆与空洞回答，保持连续性体验。
+### 3. 启动（快速）
+```bash
+./start.sh            # 同时拉起后端(默认 8000) + 前端(自动找 3000+ 空闲端口)
+```
+浏览器访问：
+```
+http://localhost:3000    (若被占用，脚本会顺延端口；终端日志显示实际端口)
+```
+后台模式：
+```bash
+./start.sh -d          # DETACH，不阻塞当前终端
+```
+常用环境变量：
+```bash
+LM_BACKEND_PORT=8100 ./start.sh   # 指定后端端口
+LM_KILL_8000=1 ./start.sh         # 若 8000 被占用，尝试自动杀掉占用进程
+LM_SKIP_HEALTH=1 ./start.sh       # 跳过 /healthz 自检
+```
 
-后续可扩展：
-- 召回查询可改为对用户输入做抽象（去除寒暄、保留核心意图）。
-- 支持多策略合并：语义+时间衰减+标签过滤。
-- 引入 recall 负反馈：若多轮连续召回无结果，可动态降低频率。
+健康检查：脚本自动轮询 `http://127.0.0.1:8000/healthz`（或你的自定义端口）。
 
-- 激活模块：输入查询向量化 + 语义/标签多策略检索 + 排序。
-- 记忆存储：时间/重要度衰减，层级结构预留。
-- 海马体：短期窗口裁剪、摘要、巩固候选生成、短期→长期写入决策。
-- 主动回忆（MCP）：memory.read / memory.write。
-- 背景摘要：渐进式压缩被遗忘上下文，维持“语境惯性”。
+> 到此为止：克隆 → install.sh → 编辑 config.json → start.sh 即可完成最小可用启动。
+
+---
+
+## 进阶 / 手动调试启动方式
+
+以下仅在需要分别调试或二次开发时使用。
+
+### A. 仅启动后端（FastAPI）
+```bash
+source .venv/bin/activate
+uvicorn backend.main:app --reload --port 8000
+```
+
+### B. 仅启动前端（Next.js UI）
+```bash
+cd external/nemo-agent-toolkit-ui
+npm run dev
+```
+前端依赖 `.env.local`（由 `start.sh` 自动生成）。若单独启动需手动创建：
+```bash
+cat > .env.local <<EOF
+NEXT_PUBLIC_WEBSOCKET_CHAT_COMPLETION_URL=ws://127.0.0.1:8000/websocket
+NEXT_PUBLIC_HTTP_CHAT_COMPLETION_URL=http://127.0.0.1:8000/chat/stream
+NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false
+NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON=false
+NEXT_PUBLIC_RIGHT_MENU_OPEN=false
+EOF
+```
+
+### C. 常见问题速查
+| 场景 | 处理 |
+|------|------|
+| 启动提示端口被占用 | `LM_KILL_8000=1 ./start.sh` 或改端口 `LM_BACKEND_PORT=8101` |
+| 首次没生成 config.json | 再跑一次 `./install.sh` 或手动复制 example |
+| 模型 401/鉴权失败 | 确认 `backend/config.json` 中 `api_key` 正确且未包含隐藏空格 |
+| 前端接口 404 | 检查后端是否健康：`curl -i http://127.0.0.1:8000/healthz` |
+| 需要离线调试 | 先在线安装依赖后缓存，再用 `LM_OFFLINE=1 ./start.sh` |
+
+---
+
+## 说明补充
+* 使用 *OpenAI Python SDK* 兼容模式；任意兼容 Chat/Embedding 协议服务都可接入。
+* `start.sh` 若检测依赖缺失会自动调用 `install.sh`（可关闭网络后本地复用缓存）。
+* 日志输出目录：`.runtime/`，包含 `backend.log` / `frontend.log`。
+* 终止：前台模式 Ctrl+C；后台模式手动 `kill <PID>`。
 
 ---
 
@@ -142,7 +189,6 @@ flowchart TD
 
 **“背景”定义**：一种滚动语义摘要，仅覆盖已从短期记忆中剥离（被遗忘或写入长期）的片段；目的：保留语境惯性（人物/任务/长期目标）而非细节，可持续被新摘要覆盖（非累计增长）。
 * MCP 让模型在生成中动态优化信息需求而非一次性注入全部上下文。
-* 激活检索支持多因子排序：Score = α·语义 + β·时间衰减 + γ·重要性 + δ·近期引用。
 
 **下一步可扩展**
 * 分层记忆级：瞬时 / 工作记忆 / 情节记忆 / 语义记忆。
@@ -151,13 +197,27 @@ flowchart TD
 * GPU/批量向量检索优化：合并多轮 embedding 查询。
 
 ## 贡献
-欢迎fork、PR或issue！这是一个“抛砖引玉”的项目，鼓励社区扩展（如加情感模块）。请阅读[CONTRIBUTING.md](CONTRIBUTING.md)。
+本项目最初作为一次 Hackathon 的实验性成果，定位是“抛砖引玉” —— 鼓励社区去进一步探索大模型的“外围神经系统”：即不直接改动参数权重，而是在模型上下文与工具调用边缘，通过类海马体（Hippocampus）的结构化记忆整合、长短期分层、情境滚动摘要与价值记忆提炼，让模型更具“人味”的连续感与自洽人格。
+
+我们当前实现的是一个极简原型：
+* 并行海马体 LLM 结构化输出 + 主回应流合并的记忆拟生机制；
+* 原始对话全量保持 + 语义背景滚动压缩的双轨；
+* MCP/工具化记忆读写（memory_recall / memory_store）让模型显式“申请”信息；
+* 为后续“随推理微演化”预留接口（可插入策略：价值强化 / 情绪标签 / 偏好曲线）。
+
+愿景：未来看到“海马体 / 记忆整合层”原生成为主流 LLM 系统结构的一层基础设施，而不是外挂补丁——补齐当下对话式 AI 在时间连续性、身份稳定性与长期承载“生活纹理”上的缺憾。
+
+你可以贡献的方向：
+1. 记忆价值判定策略（打分/强化学习/稀疏触发）。
+2. 多模态线索（图像/语音事件）进入同一记忆管线。
+3. 人格/情绪基调缓慢漂移模型（时间加权或节律曲线）。
+4. 记忆冲突检测与自我修正（反事实比对 / 版本链）。
+5. 更安全的“遗忘”策略（合规清除 / 加密拆分保存）。
+
+欢迎提交 PR / Issue / 讨论帖。如果你在实现一条“外围神经”新路径（例如：梦境回放、睡眠批处理、情绪稳态调节），非常期待链接你的实验。让我们一起把“人格化 + 持久记忆 + 自进化”从畅想推进为基础组件。 🤝
 
 ## 许可证
-本项目采用 [MIT License](LICENSE)。依赖开源项目（如Hugging Face），请遵守各自许可。
-
-## 支持我们
-如果这个项目对你有帮助，考虑[Buy Me a Coffee](https://www.buymeacoffee.com/your-username) 或 GitHub Sponsors 支持开发！你的捐赠将帮助我们迭代思路和demo。
+本项目采用 [MIT License](LICENSE)。依赖开源项目，请遵守各自许可。
 
 感谢使用 Limbic Memory！
 
@@ -170,23 +230,6 @@ flowchart TD
 git clone https://github.com/whatiname888/Limbic-Memory.git
 cd Limbic-Memory
 git submodule update --init --recursive
-```
-
-### 更新前端子模块到最新上游
-```bash
-cd external/nemo-agent-toolkit-ui
-git fetch origin
-git checkout origin/main
-cd ../..
-git add external/nemo-agent-toolkit-ui
-git commit -m "chore: bump nemo-agent-toolkit-ui submodule"
-```
-
-### 安装并运行前端（示例）
-```bash
-cd external/nemo-agent-toolkit-ui
-npm install  # 或使用 pnpm / yarn
-npm run dev  # 默认 http://localhost:3000
 ```
 
 ### 说明

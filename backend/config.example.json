@@ -1,0 +1,23 @@
+{
+	"chat": {
+		"provider": "openai",
+		"api_key": "sk-REPLACE_CHAT",
+		"base_url": "https://api.openai.com/v1",
+		"model": "gpt-4o-mini",
+		"temperature": 0.7,
+		"max_output_tokens": 1024,
+		"system_prompt": "You are a helpful assistant with long-term memory abilities. Use memory_recall before answering context-heavy queries and memory_store to save new important facts."
+	},
+	"embedding": {
+		"provider": "openai",
+		"api_key": "sk-REPLACE_EMBED",
+		"base_url": "https://api.openai.com/v1",
+		"model": "text-embedding-3-small",
+		"dimension": 1536
+	},
+	"memory": {
+		"collection": "long_term_memory",
+		"top_k": 5,
+		"max_tool_loops": 2
+	}
+}

@@ -1,7 +1,7 @@
 # Limbic Memory: 边缘海马忆存器
 
 <p align="center">
-  <img src="image/hippo.png" alt="hippo" width="300"/>
+  <img src="images/hippo.png" alt="hippo" width="300"/>
 </p>
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

@@ -1,5 +1,9 @@
 # Limbic Memory: 边缘海马忆存器
 
+<p align="center">
+  <img src="image/hippo.png" alt="hippo" width="300"/>
+</p>
+
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/whatiname888/Limbic-Memory.svg?style=social)](https://github.com/whatiname888/Limbic-Memory/stargazers)
 

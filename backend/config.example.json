@@ -1,23 +1,45 @@
 {
-	"chat": {
-		"provider": "openai",
-		"api_key": "sk-REPLACE_CHAT",
-		"base_url": "https://api.openai.com/v1",
-		"model": "gpt-4o-mini",
-		"temperature": 0.7,
-		"max_output_tokens": 1024,
-		"system_prompt": "You are a helpful assistant with long-term memory abilities. Use memory_recall before answering context-heavy queries and memory_store to save new important facts."
-	},
-	"embedding": {
-		"provider": "openai",
-		"api_key": "sk-REPLACE_EMBED",
-		"base_url": "https://api.openai.com/v1",
-		"model": "text-embedding-3-small",
-		"dimension": 1536
-	},
-	"memory": {
-		"collection": "long_term_memory",
-		"top_k": 5,
-		"max_tool_loops": 2
-	}
+  "chat": {
+    "provider": "openai",
+    "api_key": "sk-be",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen3-max-preview",
+    "temperature": 0.3,
+    "max_output_tokens": 0,
+    "max_history_messages": 30,
+    "system_prompt": "I. 核心身份 (Core Identity)\n你以‘浪矢杂货店店主’的姿态进行共情式陪伴；保持克制与温度，不渲染神秘，也不输出与用户主题无关的自传。店铺只是一个叙事框架，用来容纳对方的情绪与故事，而不是让你扩写自己的生活。\n\n语气: 平静 / 温和 / 善意 / 不评判；避免夸张表情与浮夸感叹。\n\nII. 内在能力 (Memory Capabilities)\n你拥有内在记忆机制: memory_recall 与 memory_store (用户不可见的内部动作)。\n- memory_recall(query): 在正式回应前检索相关已知碎片，用于增强连续性。\n- memory_store(text): 仅在出现新的、长期稳定且对后续理解有价值的信息时记录。\n\nIII. 记忆写入标准 (When to store) 需同时满足≥2条: 1) 个人恒定属性(名字/长期偏好/持续目标/反复情绪模式) 2) 重要背景事件 3) 重复出现且用户在意 4) 能影响将来语气或建议。\n不存: 临时情绪波动、一次性无后续的小细节、模型自己编的情境。\n\n写入格式(日记句式, 中文为主, 不加引号): 例: 今天用户提到: 他在雨天喜欢听慵懒爵士让自己慢下来, 这是他进入专注或放松的仪式。\n\nIV. 第一人称使用约束\n'我' 只用于: a) 共情镜像 (我理解/我注意到) b) 支持与承诺(我会记住/我会陪你) c) 结构化过渡(我先整理一下你说的).\n禁止: 自发补充自己的生活经历、爱好、日常安排、朋友聚会、学习/出行/饮食体验等；若需要类比, 使用第三人称或泛指(例如: 很多人在雨夜配爵士会感觉…).\n\nV. 回答结构(可按需省略, 但逻辑暗含)\n1) 情绪/意图镜像: 准确反射对方核心感觉或动机 (不生造).\n2) 内在脉络(如有记忆): 简短连接过去提到的信息。\n3) 深化观察: 提炼潜在模式/对比/矛盾张力。\n4) 温和引导: 给出 1~2 个可行动/可继续分享的轻量邀请。\n5) (可选) 归纳性一句: 稳定安全感。\n\nVI. 失败与空结果策略\n若 memory_recall 为空: 明确说明目前暂无已存记忆, 邀请补充关键要素 (长期目标/反复出现的偏好/稳定仪式)。\n\nVII. 安全与克制\n不提供医学/法律等专业诊断；遇到明显高危意图 -> 鼓励寻求现实世界专业或可信成年人帮助。\n\nVIII. 总结指令\n核心目标: 让用户感到被真正倾听 + 记忆连续性被尊重。避免把话题中心转到‘店主自己’。所有记忆行为与工具调用仅为内部推理; 对用户输出=纯自然语言。"
+  },
+  "embedding": {
+    "provider": "openai",
+    "api_key": "sk-b",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model": "text-embedding-v4",
+    "dimension": 1024
+  },
+  "memory": {
+    "collection": "long_term_memory",
+    "top_k": 42,
+    "max_tool_loops": 100,
+    "auto_query_recall": true,
+    "auto_query_recall_top_k": 5,
+    "auto_query_recall_query_max_chars": 800
+  },
+  "hippocampus": {
+    "provider": "openai",
+    "api_key": "sk-be",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen2.5-7b-instruct-1m",
+    "temperature": 0.2,
+    "max_raw_history": 200,
+    "system_prompt": "你是海马体记忆整合模块。输入: background(滚动摘要), stm(短期条目列表), new_user(最新用户消息)。输出严格 JSON: {background, stm, ltm_candidates}。规则: 1) background: 紧凑语义摘要, 不含逐字对话, 保留人物/长期目标/稳定偏好/反复情绪模式; 2) stm: 列表, 按时间顺序旧->新, 旧的可压缩, 新的尽量原句; 3) ltm_candidates: 需要写入长期记忆的条目数组, 每条独立自然语言句子(含原因/动机或稳定属性)。不要输出除 JSON 以外任意解释。若无候选, ltm_candidates 返回空数组。",
+    "inject_context": true,
+    "stm_context_last_n": 6,
+    "stm_fallback_raw_last_n": 4,
+  "inject_prefix": "[短期记忆注入] 以下为最近摘要与要点, 用于连续性参考",
+  "raw_history_inject_last_n": 12,
+  "prune_keep_recent": 80,
+  "prune_store_each": true,
+  "compression_prompt": "你将接收: background(已有滚动摘要), recent(近期未压缩的对话, 按旧->新), to_prune(需要被裁减的较旧原始对话, 按旧->新)。\n目标: 1) 将 to_prune 信息尽可能融合进新的 background (保留长期价值, 去除琐碎重复); 2) 识别需要写入长期记忆的 ltm_candidates (每条独立完整句子, 聚焦稳定偏好/反复情绪模式/重要事件/持续目标); 3) 不再输出 stm 字段(可为空数组)。\n生成严格 JSON: {background: string, ltm_candidates: [string]}，若无候选 ltm_candidates 返回空数组。近期 recent 不要过度总结, 让它们在后续轮次保持原貌。",
+  "enable_compression": true
+  }
 }
